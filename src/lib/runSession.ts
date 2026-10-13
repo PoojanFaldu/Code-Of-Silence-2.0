@@ -1,6 +1,6 @@
 /** Persist active mission timer + in-room puzzle steps across refresh. */
 
-import { getActivePlayerId } from "@/lib/eventDb";
+import { getActivePlayerId, LEADERBOARD_FROZEN } from "@/lib/eventDb";
 
 export type RoomId = "verma" | "research" | "archive" | "server";
 
@@ -130,5 +130,8 @@ export function setServerRoomProgress(patch: Partial<RoomFourFlags>) {
 
 export function hasResumableMission(): boolean {
   const s = loadRunSession();
-  return Boolean(s.missionStarted && s.gameStartTime != null && !s.timedOut && getActivePlayerId());
+  if (!s.missionStarted || s.gameStartTime == null || s.timedOut) return false;
+  // Free-play (frozen LB) has no leaderboard player id — resume from local session alone
+  if (LEADERBOARD_FROZEN) return true;
+  return Boolean(getActivePlayerId());
 }

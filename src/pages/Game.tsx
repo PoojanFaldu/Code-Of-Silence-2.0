@@ -1,14 +1,17 @@
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Lock } from "lucide-react";
+import { ArrowLeft, Lock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import {
   getInvestigationState,
   isRoomUnlocked,
+  resetInvestigationState,
   unlockServerRoomForTesting,
   type RoomKey,
 } from "@/lib/investigationState";
-import { seedProgressThroughArchives } from "@/lib/investigationProgress";
+import { resetProgressHud, seedProgressThroughArchives } from "@/lib/investigationProgress";
+import { clearRunSession } from "@/lib/runSession";
+import { setActivePlayerId, setAppliedBonusSeconds } from "@/lib/eventDb";
 import InvestigationHud from "@/components/rooms/InvestigationHud";
 import { useGame } from "@/contexts/GameContext";
 
@@ -28,7 +31,7 @@ function normalizeRoom(raw: string): RoomKey {
 const Game = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { missionStarted, startMission, setPuzzleSolved } = useGame();
+  const { missionStarted, startMission, setPuzzleSolved, resetGame } = useGame();
   const roomName = normalizeRoom(searchParams.get("room") || "verma");
   const skipPrior = searchParams.get("skip") === "1";
   const [skipReady, setSkipReady] = useState(!skipPrior);
@@ -51,10 +54,21 @@ const Game = () => {
   useEffect(() => {
     if (!skipReady) return;
     if (!unlocked) {
-      // Send locked-room URL attempts back to the investigation map
       navigate("/?skipIntro=true", { replace: true });
     }
   }, [unlocked, navigate, skipReady]);
+
+  const handleReset = () => {
+    if (!window.confirm("Reset your local progress and start over?")) return;
+    resetGame();
+    clearRunSession();
+    resetProgressHud();
+    resetInvestigationState();
+    setActivePlayerId(null);
+    setAppliedBonusSeconds(0);
+    startMission();
+    navigate("/?skipIntro=true", { replace: true });
+  };
 
   const getRoomComponent = () => {
     switch (roomName) {
@@ -104,16 +118,28 @@ const Game = () => {
 
   return (
     <div className="min-h-screen bg-black relative">
-      <Link to="/?skipIntro=true" className="fixed top-4 left-4 z-50">
+      <div className="fixed top-4 left-4 z-50 flex gap-2">
+        <Link to="/?skipIntro=true">
+          <Button
+            variant="outline"
+            size="sm"
+            className="font-display font-bold bg-black/80 border-red-900/70 text-white hover:bg-red-900/20 hover:border-red-600"
+          >
+            <ArrowLeft className="w-4 h-4 mr-1.5" />
+            Map
+          </Button>
+        </Link>
         <Button
+          type="button"
           variant="outline"
           size="sm"
-          className="font-display font-bold bg-black/80 border-red-900/70 text-white hover:bg-red-900/20 hover:border-red-600"
+          onClick={handleReset}
+          className="font-display font-bold bg-black/80 border-white/20 text-slate-200 hover:bg-white/10 hover:border-white/40"
         >
-          <ArrowLeft className="w-4 h-4 mr-1.5" />
-          Map
+          <RotateCcw className="w-4 h-4 mr-1.5" />
+          Reset
         </Button>
-      </Link>
+      </div>
 
       <InvestigationHud currentRoom={roomName} />
 

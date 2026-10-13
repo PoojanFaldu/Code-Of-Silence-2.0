@@ -174,7 +174,7 @@ export const GameProvider = ({ children }: { children: ReactNode }) => {
     setTimedOut(false);
   }, []);
 
-  const resetGame = () => {
+  const resetGame = useCallback(() => {
     setGameStartTime(null);
     setMissionStarted(false);
     setPuzzleSolvedState(false);
@@ -185,7 +185,7 @@ export const GameProvider = ({ children }: { children: ReactNode }) => {
     resetInvestigationState();
     resetProgressHud();
     setAppliedBonusSeconds(0);
-  };
+  }, []);
 
   // Heartbeat + apply admin time bonuses
   useEffect(() => {

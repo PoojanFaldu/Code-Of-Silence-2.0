@@ -1,5 +1,8 @@
 /** Event database for player runs + leaderboard (local + disk-backed API). */
 
+/** Event over — final leaderboard is read-only; free play does not write. */
+export const LEADERBOARD_FROZEN = true;
+
 export type MurderGuessResult = "correct" | "incorrect" | "none";
 
 export type MurderGuessEntry = {
@@ -45,7 +48,14 @@ const APPLIED_BONUS_KEY = "cos_applied_time_bonus";
 export const EVENT_DB_EVENT = "cos-event-db";
 export const MISSION_DURATION_SECONDS = 2700; // 45 minutes
 
-const DEFAULT_ADMIN_PASSWORD = "2345";
+/** Password to start a new player run (team identification form). */
+const DEFAULT_START_PASSWORD = "Accisalt@123";
+/** Password for /admin console (add time, delete, live status). */
+const DEFAULT_ADMIN_PASSWORD = "Accisalt@123";
+
+export function getStartPassword(): string {
+  return (import.meta.env.VITE_START_PASSWORD as string | undefined)?.trim() || DEFAULT_START_PASSWORD;
+}
 
 export function getAdminPassword(): string {
   return (import.meta.env.VITE_ADMIN_PASSWORD as string | undefined)?.trim() || DEFAULT_ADMIN_PASSWORD;
@@ -106,6 +116,7 @@ export function loadEventDb(): EventDb {
 
 /** Push local DB to disk-backed API (survives server restart). */
 async function pushToServer(db: EventDb) {
+  if (LEADERBOARD_FROZEN) return;
   try {
     await fetch("/api/event-db", {
       method: "POST",
@@ -118,6 +129,7 @@ async function pushToServer(db: EventDb) {
 }
 
 function saveEventDb(db: EventDb) {
+  if (LEADERBOARD_FROZEN) return;
   saveLocal(db);
   void pushToServer(db);
 }
@@ -145,7 +157,41 @@ function mergePlayer(existing: PlayerRecord, incoming: PlayerRecord): PlayerReco
   });
 }
 
-/** Pull disk-backed leaderboard on boot (merges with local by player id). */
+/**
+ * Server roster is source of truth for who exists.
+ * Local-only rows are kept briefly only for the active in-progress player.
+ */
+function applyServerRoster(remotePlayers: PlayerRecord[]): EventDb {
+  // Frozen LB: server snapshot only — never inject local free-play rows
+  if (LEADERBOARD_FROZEN) {
+    const merged = { players: remotePlayers };
+    if (canUseStorage()) {
+      localStorage.setItem(DB_KEY, JSON.stringify(merged));
+      notify();
+    }
+    return merged;
+  }
+  const local = loadEventDb();
+  const localById = new Map(local.players.map((p) => [p.id, p] as const));
+  const next: PlayerRecord[] = remotePlayers.map((p) => {
+    const localP = localById.get(p.id);
+    return localP ? mergePlayer(localP, p) : p;
+  });
+  const remoteIds = new Set(remotePlayers.map((p) => p.id));
+  const active = getActivePlayerId();
+  if (active && !remoteIds.has(active)) {
+    const localActive = localById.get(active);
+    if (localActive && !localActive.finishedAt) next.push(localActive);
+  }
+  const merged = { players: next };
+  if (canUseStorage()) {
+    localStorage.setItem(DB_KEY, JSON.stringify(merged));
+    notify();
+  }
+  return merged;
+}
+
+/** Pull disk-backed leaderboard on boot (server membership wins). */
 export async function hydrateEventDbFromServer(): Promise<void> {
   if (!canUseStorage()) return;
   try {
@@ -155,22 +201,13 @@ export async function hydrateEventDbFromServer(): Promise<void> {
     const remotePlayers = Array.isArray(remote.players)
       ? remote.players.map((p) => normalizePlayer(p as PlayerRecord))
       : [];
-    if (remotePlayers.length === 0) {
-      const local = loadEventDb();
-      if (local.players.length > 0) await pushToServer(local);
-      return;
+    applyServerRoster(remotePlayers);
+    if (LEADERBOARD_FROZEN) return;
+    const active = getActivePlayerId();
+    if (active) {
+      const p = loadEventDb().players.find((x) => x.id === active);
+      if (p) await pushToServer({ players: [p] });
     }
-    const local = loadEventDb();
-    const byId = new Map<string, PlayerRecord>();
-    local.players.forEach((p) => byId.set(p.id, p));
-    remotePlayers.forEach((p) => {
-      const existing = byId.get(p.id);
-      if (!existing) byId.set(p.id, p);
-      else byId.set(p.id, mergePlayer(existing, p));
-    });
-    const merged: EventDb = { players: [...byId.values()] };
-    saveLocal(merged);
-    await pushToServer(merged);
   } catch {
     /* ignore */
   }
@@ -184,47 +221,32 @@ export async function refreshEventDbFromServer(): Promise<EventDb> {
     const remotePlayers = Array.isArray(remote.players)
       ? remote.players.map((p) => normalizePlayer(p as PlayerRecord))
       : [];
-    const local = loadEventDb();
-    const byId = new Map<string, PlayerRecord>();
-    local.players.forEach((p) => byId.set(p.id, p));
-    remotePlayers.forEach((p) => {
-      const existing = byId.get(p.id);
-      if (!existing) byId.set(p.id, p);
-      else byId.set(p.id, mergePlayer(existing, p));
-    });
-    // Prefer server list order for deletes — drop ids not on server when server has data
-    if (remotePlayers.length > 0) {
-      const remoteIds = new Set(remotePlayers.map((p) => p.id));
-      // Keep local-only brand-new players that haven't synced yet (no lastSeen on server)
-      for (const [id, p] of [...byId.entries()]) {
-        if (!remoteIds.has(id) && p.lastSeenAt == null && !p.finishedAt) continue;
-        if (!remoteIds.has(id) && remotePlayers.some((r) => r.id === id) === false) {
-          // If server explicitly has a list and this id isn't on it, remove unless it's the active local player mid-write
-          const active = getActivePlayerId();
-          if (id !== active) byId.delete(id);
-        }
-      }
-      // Rebuild from server as source of truth for membership
-      const next = new Map<string, PlayerRecord>();
-      remotePlayers.forEach((p) => {
-        const localP = byId.get(p.id);
-        next.set(p.id, localP ? mergePlayer(localP, p) : p);
-      });
-      const active = getActivePlayerId();
-      if (active && byId.has(active) && !next.has(active)) next.set(active, byId.get(active)!);
-      const merged = { players: [...next.values()] };
-      saveLocal(merged);
-      return merged;
-    }
-    const merged = { players: [...byId.values()] };
-    saveLocal(merged);
-    return merged;
+    return applyServerRoster(remotePlayers);
   } catch {
     return loadEventDb();
   }
 }
 
-/** Server-side password check when API is available; falls back to client env. */
+/** Start-game password (new player form). */
+export async function verifyStartPassword(password: string): Promise<boolean> {
+  try {
+    const res = await fetch("/api/start/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { ok?: boolean };
+      return Boolean(data.ok);
+    }
+    if (res.status === 401) return false;
+  } catch {
+    /* fall through */
+  }
+  return password === getStartPassword();
+}
+
+/** Admin console password (/admin). */
 export async function verifyAdminPassword(password: string): Promise<boolean> {
   try {
     const res = await fetch("/api/admin/verify", {
@@ -376,10 +398,9 @@ export function deriveLiveProgress(taskIds: string[]): { room: string; puzzle: s
   return { room: "Complete", puzzle: "—" };
 }
 
-/** Create a new run entry for this name (always a fresh leaderboard row). */
+/** Create a new run entry for this name (no-op when leaderboard is frozen). */
 export function startGameAsPlayer(name: string): PlayerRecord {
-  const trimmed = name.trim();
-  const db = loadEventDb();
+  const trimmed = name.trim() || "Guest";
   const player: PlayerRecord = normalizePlayer({
     id: uid(),
     name: trimmed,
@@ -399,6 +420,12 @@ export function startGameAsPlayer(name: string): PlayerRecord {
     timeBonusSeconds: 0,
     lastSeenAt: new Date().toISOString(),
   });
+  if (LEADERBOARD_FROZEN) {
+    setActivePlayerId(null);
+    setAppliedBonusSeconds(0);
+    return player;
+  }
+  const db = loadEventDb();
   db.players.push(player);
   saveEventDb(db);
   setActivePlayerId(player.id);
@@ -436,6 +463,7 @@ export function getActivePlayer(): PlayerRecord | null {
 }
 
 export function syncPlayerTasks(taskIds: string[]) {
+  if (LEADERBOARD_FROZEN) return;
   const id = getActivePlayerId();
   if (!id) return;
   const db = loadEventDb();
@@ -461,6 +489,7 @@ export function pushPlayerHeartbeat(partial: {
   currentRoom?: string | null;
   currentPuzzle?: string | null;
 }) {
+  if (LEADERBOARD_FROZEN) return;
   const id = getActivePlayerId();
   if (!id) return;
   const db = loadEventDb();
@@ -483,6 +512,7 @@ export function pushPlayerHeartbeat(partial: {
 }
 
 export function recordMurderGuess(guessName: string, correct: boolean, timeUsedSeconds: number) {
+  if (LEADERBOARD_FROZEN) return;
   const id = getActivePlayerId();
   if (!id) return;
   const db = loadEventDb();
@@ -508,6 +538,7 @@ export function recordMurderGuess(guessName: string, correct: boolean, timeUsedS
 }
 
 export function recordTimeout(timeUsedSeconds: number = MISSION_DURATION_SECONDS) {
+  if (LEADERBOARD_FROZEN) return;
   const id = getActivePlayerId();
   if (!id) return;
   const db = loadEventDb();

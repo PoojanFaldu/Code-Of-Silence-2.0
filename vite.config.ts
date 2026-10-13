@@ -7,6 +7,8 @@ import { eventApiPlugin } from "./server/eventApiPlugin";
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
+  if (env.START_PASSWORD) process.env.START_PASSWORD = env.START_PASSWORD;
+  if (env.VITE_START_PASSWORD) process.env.VITE_START_PASSWORD = env.VITE_START_PASSWORD;
   if (env.ADMIN_PASSWORD) process.env.ADMIN_PASSWORD = env.ADMIN_PASSWORD;
   if (env.VITE_ADMIN_PASSWORD) process.env.VITE_ADMIN_PASSWORD = env.VITE_ADMIN_PASSWORD;
 

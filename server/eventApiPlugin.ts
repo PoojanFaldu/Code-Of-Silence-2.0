@@ -24,7 +24,10 @@ type PlayerRecord = {
   lastSeenAt?: string | null;
 };
 
-type EventDb = { players: PlayerRecord[] };
+type EventDb = { players: PlayerRecord[]; deletedIds: string[] };
+
+/** Event over — reject all leaderboard writes; GET still serves final results. */
+const LEADERBOARD_FROZEN = true;
 
 function dataPath(root: string) {
   return path.join(root, "data", "event-db.json");
@@ -57,19 +60,24 @@ function ensureDb(root: string): EventDb {
   const dir = path.dirname(file);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   if (!fs.existsSync(file)) {
-    const empty: EventDb = { players: [] };
+    const empty: EventDb = { players: [], deletedIds: [] };
     fs.writeFileSync(file, JSON.stringify(empty, null, 2), "utf8");
     return empty;
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as EventDb;
-    return {
-      players: Array.isArray(parsed.players)
-        ? parsed.players.map((p) => normalizePlayer(p as PlayerRecord))
-        : [],
-    };
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<EventDb>;
+    const deletedIds = Array.isArray(parsed.deletedIds)
+      ? [...new Set(parsed.deletedIds.filter((id): id is string => typeof id === "string"))]
+      : [];
+    const deleted = new Set(deletedIds);
+    const players = Array.isArray(parsed.players)
+      ? parsed.players
+          .map((p) => normalizePlayer(p as PlayerRecord))
+          .filter((p) => !deleted.has(p.id))
+      : [];
+    return { players, deletedIds };
   } catch {
-    return { players: [] };
+    return { players: [], deletedIds: [] };
   }
 }
 
@@ -77,7 +85,12 @@ function writeDb(root: string, db: EventDb) {
   const file = dataPath(root);
   const dir = path.dirname(file);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(db, null, 2), "utf8");
+  const deleted = new Set(db.deletedIds ?? []);
+  const clean: EventDb = {
+    players: (db.players ?? []).filter((p) => !deleted.has(p.id)),
+    deletedIds: [...deleted],
+  };
+  fs.writeFileSync(file, JSON.stringify(clean, null, 2), "utf8");
 }
 
 function readBody(req: import("http").IncomingMessage): Promise<string> {
@@ -89,11 +102,19 @@ function readBody(req: import("http").IncomingMessage): Promise<string> {
   });
 }
 
+function startPassword() {
+  return (
+    process.env.START_PASSWORD?.trim() ||
+    process.env.VITE_START_PASSWORD?.trim() ||
+    "Accisalt@123"
+  );
+}
+
 function adminPassword() {
   return (
     process.env.ADMIN_PASSWORD?.trim() ||
     process.env.VITE_ADMIN_PASSWORD?.trim() ||
-    "2345"
+    "Accisalt@123"
   );
 }
 
@@ -127,11 +148,18 @@ function attachApi(server: ViteDevServer | PreviewServer, root: string) {
     const url = req.url?.split("?")[0] ?? "";
 
     if (url === "/api/event-db" && req.method === "GET") {
-      json(res, 200, ensureDb(root));
+      const db = ensureDb(root);
+      // Clients only need the live roster — never rehydrate deleted rows
+      json(res, 200, { players: db.players });
       return;
     }
 
     if (url === "/api/event-db" && req.method === "POST") {
+      if (LEADERBOARD_FROZEN) {
+        const db = ensureDb(root);
+        json(res, 200, { ok: true, frozen: true, count: db.players.length });
+        return;
+      }
       try {
         const raw = await readBody(req);
         const incoming = JSON.parse(raw) as EventDb;
@@ -139,17 +167,34 @@ function attachApi(server: ViteDevServer | PreviewServer, root: string) {
           ? incoming.players.map((p) => normalizePlayer(p as PlayerRecord))
           : [];
         const serverDb = ensureDb(root);
+        const deleted = new Set(serverDb.deletedIds ?? []);
         const byId = new Map<string, PlayerRecord>();
         serverDb.players.forEach((p) => byId.set(p.id, p));
         incomingPlayers.forEach((p) => {
+          if (deleted.has(p.id)) return; // admin delete is permanent
           const existing = byId.get(p.id);
           byId.set(p.id, existing ? mergePlayer(existing, p) : p);
         });
-        const merged = { players: [...byId.values()] };
+        const merged: EventDb = {
+          players: [...byId.values()].filter((p) => !deleted.has(p.id)),
+          deletedIds: [...deleted],
+        };
         writeDb(root, merged);
         json(res, 200, { ok: true, count: merged.players.length });
       } catch {
         json(res, 400, { ok: false, error: "Invalid payload" });
+      }
+      return;
+    }
+
+    if (url === "/api/start/verify" && req.method === "POST") {
+      try {
+        const raw = await readBody(req);
+        const body = JSON.parse(raw) as { password?: string };
+        const ok = (body.password ?? "") === startPassword();
+        json(res, ok ? 200 : 401, { ok });
+      } catch {
+        json(res, 400, { ok: false });
       }
       return;
     }
@@ -167,6 +212,10 @@ function attachApi(server: ViteDevServer | PreviewServer, root: string) {
     }
 
     if (url === "/api/admin/add-time" && req.method === "POST") {
+      if (LEADERBOARD_FROZEN) {
+        json(res, 403, { ok: false, error: "Leaderboard frozen" });
+        return;
+      }
       try {
         const raw = await readBody(req);
         const body = JSON.parse(raw) as { password?: string; playerId?: string; seconds?: number };
@@ -201,6 +250,10 @@ function attachApi(server: ViteDevServer | PreviewServer, root: string) {
     }
 
     if (url === "/api/admin/delete-player" && req.method === "POST") {
+      if (LEADERBOARD_FROZEN) {
+        json(res, 403, { ok: false, error: "Leaderboard frozen" });
+        return;
+      }
       try {
         const raw = await readBody(req);
         const body = JSON.parse(raw) as { password?: string; playerId?: string };
@@ -219,6 +272,9 @@ function attachApi(server: ViteDevServer | PreviewServer, root: string) {
           json(res, 404, { ok: false, error: "Player not found" });
           return;
         }
+        const deleted = new Set(db.deletedIds ?? []);
+        deleted.add(body.playerId);
+        db.deletedIds = [...deleted];
         writeDb(root, db);
         json(res, 200, { ok: true });
       } catch {

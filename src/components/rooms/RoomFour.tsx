@@ -829,7 +829,7 @@ const RoomFour = () => {
                 onClick={() => (window.location.href = "/?newPlayer=1")}
                 className="px-6 py-2 text-xs font-mono tracking-wider text-slate-400 hover:text-white border border-white/10 rounded"
               >
-                Start again with a different username
+                Play again
               </button>
             </div>
           </div>

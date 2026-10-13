@@ -26,14 +26,13 @@ const TimedOutOverlay = () => {
       <div className="max-w-md w-full text-center space-y-5 border border-rose-500/40 rounded-xl p-8 bg-rose-950/20">
         <h1 className="text-3xl font-black tracking-widest text-rose-400">TIME EXPIRED</h1>
         <p className="text-sm text-slate-300 leading-relaxed">
-          The mission timer reached zero. This run is recorded as timed out on the leaderboard.
+          The mission timer reached zero. Start again anytime — free play is not saved to the
+          leaderboard.
         </p>
         <div className="flex flex-col gap-2">
           <button
             type="button"
             onClick={() => {
-              // End the mission fully — clearTimedOut alone left missionStarted=true with
-              // remaining=0, so the ticker immediately re-opened this overlay.
               resetGame();
               navigate("/leaderboard");
             }}
@@ -49,7 +48,7 @@ const TimedOutOverlay = () => {
             }}
             className="w-full py-2.5 border border-white/15 rounded font-mono text-xs tracking-wider text-slate-300 hover:text-white"
           >
-            Start again with a different username
+            Play again
           </button>
         </div>
       </div>

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { startGameAsPlayer, verifyAdminPassword } from "@/lib/eventDb";
+import { startGameAsPlayer, verifyStartPassword } from "@/lib/eventDb";
 import { useGame } from "@/contexts/GameContext";
 import { resetProgressHud } from "@/lib/investigationProgress";
 import { resetInvestigationState } from "@/lib/investigationState";
@@ -26,11 +26,12 @@ export const TeamIdentification = ({ onComplete }: TeamIdentificationProps) => {
       setError("Enter a player name.");
       return;
     }
-    const ok = await verifyAdminPassword(adminPassword);
+    const ok = await verifyStartPassword(adminPassword);
     if (!ok) {
-      setError("Incorrect admin password.");
+      setError("Incorrect password.");
       return;
     }
+    // Full wipe — clears deep-link skip unlock + prior room COMPLETE flags
     resetGame();
     clearRunSession();
     resetProgressHud();

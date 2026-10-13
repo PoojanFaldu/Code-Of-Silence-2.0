@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, Beaker, FolderOpen, Server, Lock, CheckCircle2 } from "lucide-react";
+import { BookOpen, Beaker, FolderOpen, Server, Lock, CheckCircle2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LoadingScreen } from "./LoadingScreen";
@@ -11,8 +11,12 @@ import {
   getRoomStatusLabel,
   isRoomUnlocked,
   mapLocationIdToRoom,
+  resetInvestigationState,
   type RoomKey,
 } from "@/lib/investigationState";
+import { resetProgressHud } from "@/lib/investigationProgress";
+import { clearRunSession } from "@/lib/runSession";
+import { setActivePlayerId, setAppliedBonusSeconds } from "@/lib/eventDb";
 
 interface Location {
   id: string;
@@ -76,7 +80,7 @@ const cluesData: Clue[] = [
 
 export const InvestigationMap = () => {
   const navigate = useNavigate();
-  const { timeRemaining, puzzleSolved, setPuzzleSolved } = useGame();
+  const { timeRemaining, puzzleSolved, setPuzzleSolved, resetGame, startMission } = useGame();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [showPuzzle, setShowPuzzle] = useState(false);
   const [clues, setClues] = useState<Clue[]>([]);
@@ -193,6 +197,25 @@ export const InvestigationMap = () => {
                 style={{ animationDelay: '0.3s' }}>
                 Follow the evidence trail — rooms unlock in order
               </p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!window.confirm("Reset your local progress and start over?")) return;
+                  resetGame();
+                  clearRunSession();
+                  resetProgressHud();
+                  resetInvestigationState();
+                  setActivePlayerId(null);
+                  setAppliedBonusSeconds(0);
+                  startMission();
+                  setInvestTick((t) => t + 1);
+                  toast.success("Progress reset.");
+                }}
+                className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono tracking-wider text-slate-300 border border-white/20 rounded hover:border-cyan-400/50 hover:text-cyan-300"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset progress
+              </button>
             </div>
             
             {/* Connection Lines */}

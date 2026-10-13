@@ -17,6 +17,8 @@ export type InvestigationState = {
 };
 
 const STORAGE_KEY = "the_last_session_investigation";
+/** Session-only deep-link unlock (`?skip=1`) — must not mark rooms COMPLETE. */
+const SKIP_UNLOCK_KEY = "cos_skip_unlock";
 
 const DEFAULT_STATE: InvestigationState = {
   room1Complete: false,
@@ -74,6 +76,25 @@ export function setInvestigationState(patch: Partial<InvestigationState>): Inves
   return next;
 }
 
+export function isSkipUnlockActive(): boolean {
+  if (!canUseStorage()) return false;
+  try {
+    return sessionStorage.getItem(SKIP_UNLOCK_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function clearSkipUnlock() {
+  if (!canUseStorage()) return;
+  try {
+    sessionStorage.removeItem(SKIP_UNLOCK_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Wipe room completion, HUD tasks, and deep-link skip unlock. */
 export function resetInvestigationState() {
   if (canUseStorage()) {
     localStorage.removeItem(STORAGE_KEY);
@@ -99,38 +120,27 @@ export function resetInvestigationState() {
     } catch {
       /* ignore */
     }
+    clearSkipUnlock();
   }
   resetProgressHud();
 }
 
-/** Dev/test: unlock the Server Room without replaying earlier sites. */
+/**
+ * Dev/test deep-link (`?skip=1`): unlock all rooms for this browser tab only.
+ * Does NOT mark rooms COMPLETE — New Player must start from a clean map.
+ */
 export function unlockServerRoomForTesting() {
-  setInvestigationState({
-    room1Complete: true,
-    room2Complete: true,
-    room3Complete: true,
-    nehaSuspect: true,
-    nehaRedHerringRevealed: true,
-    arjunEvidenceFound: false,
-    finalUnlocked: false,
-    caseSolved: false,
-    room4Complete: false,
-  });
-  if (canUseStorage()) {
-    [
-      "room1_neha_suspect",
-      "room1_to_lab",
-      "room2_neha_suspect",
-      "room2_exp17_archive",
-      "room2_history_missing",
-      "room3_puzzle5_solved",
-      "room3_puzzle6_solved",
-    ].forEach((k) => localStorage.setItem(k, "true"));
+  if (!canUseStorage()) return;
+  try {
+    sessionStorage.setItem(SKIP_UNLOCK_KEY, "1");
+  } catch {
+    /* ignore */
   }
 }
 
 /** Room unlock rules for continuous investigation */
 export function isRoomUnlocked(room: RoomKey, state = getInvestigationState()): boolean {
+  if (isSkipUnlockActive()) return true;
   switch (room) {
     case "verma":
       return true;

@@ -5,15 +5,14 @@ import {
   formatFinishTime,
   formatTimeUsed,
   loadEventDb,
-  normalizeSuspectFullName,
+  refreshEventDbFromServer,
   type PlayerRecord,
 } from "@/lib/eventDb";
 
 function guessLabel(p: PlayerRecord) {
-  if (p.murderGuess === "none" || !p.murderGuessName) return "—";
-  const name = normalizeSuspectFullName(p.murderGuessName);
-  if (p.murderGuess === "correct") return `${name} · correct`;
-  return `${name} · incorrect`;
+  if (p.murderGuess === "correct") return "Correct";
+  if (p.murderGuess === "incorrect") return "Wrong";
+  return "—";
 }
 
 export default function Leaderboard() {
@@ -21,10 +20,13 @@ export default function Leaderboard() {
 
   useEffect(() => {
     const refresh = () => setPlayers(loadEventDb().players);
-    refresh();
+    const pull = () => {
+      void refreshEventDbFromServer().then((db) => setPlayers(db.players));
+    };
+    pull();
     window.addEventListener(EVENT_DB_EVENT, refresh);
     window.addEventListener("storage", refresh);
-    const id = window.setInterval(refresh, 2000);
+    const id = window.setInterval(pull, 2500);
     return () => {
       window.removeEventListener(EVENT_DB_EVENT, refresh);
       window.removeEventListener("storage", refresh);
@@ -41,7 +43,6 @@ export default function Leaderboard() {
     };
     const d = rank(a) - rank(b);
     if (d !== 0) return d;
-    // Faster finish (less mission time used, including penalties) ranks higher among winners
     if (a.murderGuess === "correct" && b.murderGuess === "correct") {
       return (a.timeUsedSeconds ?? 99999) - (b.timeUsedSeconds ?? 99999);
     }
@@ -54,14 +55,13 @@ export default function Leaderboard() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-[0.2em]">LEADERBOARD</h1>
-            <p className="text-xs text-slate-500 mt-1 font-mono">CODE OF SILENCE · LIVE RESULTS</p>
+            <p className="text-xs text-slate-500 mt-1 font-mono">
+              CODE OF SILENCE · FINAL RESULTS · FROZEN
+            </p>
           </div>
           <div className="flex gap-3 text-xs font-mono">
-            <Link to="/?newPlayer=1" className="text-slate-400 hover:text-white">
-              New player
-            </Link>
-            <Link to="/" className="text-cyan-400 hover:text-cyan-300">
-              Play
+            <Link to="/?newPlayer=1" className="text-cyan-400 hover:text-cyan-300">
+              Play again
             </Link>
           </div>
         </div>
@@ -72,7 +72,7 @@ export default function Leaderboard() {
               <tr>
                 <th className="px-4 py-3">Player</th>
                 <th className="px-4 py-3">Puzzles</th>
-                <th className="px-4 py-3">Murderer guess</th>
+                <th className="px-4 py-3">Guess</th>
                 <th className="px-4 py-3">Time used</th>
                 <th className="px-4 py-3">Time out</th>
                 <th className="px-4 py-3">Finished at</th>
@@ -82,7 +82,7 @@ export default function Leaderboard() {
               {sorted.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-12 text-center text-slate-500">
-                    No players yet. Start a game with admin password + name.
+                    No results recorded.
                   </td>
                 </tr>
               ) : (
@@ -91,7 +91,7 @@ export default function Leaderboard() {
                     <td className="px-4 py-3 font-semibold">{p.name}</td>
                     <td className="px-4 py-3 font-mono text-cyan-200">{p.puzzlesPassed}</td>
                     <td
-                      className={`px-4 py-3 font-mono text-xs ${
+                      className={`px-4 py-3 font-mono text-xs tracking-wide ${
                         p.murderGuess === "correct"
                           ? "text-emerald-400"
                           : p.murderGuess === "incorrect"
