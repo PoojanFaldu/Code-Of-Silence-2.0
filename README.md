@@ -1,211 +1,114 @@
-# CODE OF SILENCE — HOW TO PLAY
+# Code of Silence
 
-## 1. Run the Game
+Interactive 3D murder-mystery investigation built for **CSI · KJSIT**.
 
-Open the project folder in the terminal and run:
+Players explore four locations in order, solve puzzles, gather evidence, and accuse the murderer before the mission timer runs out.
+
+**Live:** [https://csi.kjsitlabs.com](https://csi.kjsitlabs.com)
+
+**Final event leaderboard:** [https://csi.kjsitlabs.com/leaderboard](https://csi.kjsitlabs.com/leaderboard)
+
+---
+
+## About the experience
+
+Someone altered Project AEGIS research. Professor Dev Verma planned to confront them — and did not survive the night. Investigators must follow the evidence trail room by room.
+
+### Rooms (unlock in order)
+
+| Room | Focus |
+|------|--------|
+| **Dr. Verma's Office** | Laser desk, drawer, cipher, badge folder |
+| **Research Lab** | Logic gates, falsified report, timeline, archive access |
+| **Archives** | Hash integrity check, archive terminal |
+| **Server Room** | Session ID, UV print, tangled wires, CCTV, final accusation |
+
+Progress is local to the browser (rooms, puzzles, timer). After the campus event, the public leaderboard is **frozen** — free play no longer writes new scores.
+
+---
+
+## Play (post-event)
+
+1. Open [csi.kjsitlabs.com](https://csi.kjsitlabs.com)
+2. No name or password required
+3. Start investigating from the map
+4. Use **Reset** (beside **Map**, or on the map screen) to wipe *your* local progress and start over
+5. Optional: view the frozen event results on `/leaderboard`
+
+---
+
+## Tech stack
+
+- **React + TypeScript** (Vite)
+- **Three.js / R3F** for 3D rooms
+- **Tailwind + shadcn/ui** for UI
+- Disk-backed JSON event DB (`data/event-db.json`) for the frozen leaderboard / admin APIs
+- Hosted behind nginx at `csi.kjsitlabs.com` (Vite preview via PM2)
+
+---
+
+## Local development
 
 ```bash
 npm install
-```
-
-Then start the game:
-
-```bash
 npm run dev
 ```
 
-Open the local URL provided by the terminal.
-
----
-
-## 2. Start the Investigation
-
-On the game screen, click:
-
-> **PATH IS HIDDEN**
-
-The following sentence will appear:
-
-> **Only the right name reveals the way forward. Which room will you try?**
-
-The room names will appear in a **shuffled order**, but the correct investigation sequence is always:
-
-Files missing. Secrets exposed →  Archive Room
-Chemicals. Logs erased → Research Lab
-Data stolen. Trail vanished → Server Room
-Books scattered. Desk forced open → Dr. Verma's Offic
-
-Enter the names **exactly as written above** and in this sequence to unlock the rooms.
-
----
-
-## 3. Dr. Verma's Office
-
-After the rooms are unlocked, enter **Dr. Verma's Office**.
-
-First, click the **PC** and use the **Zoom button at the top-right corner** of the screen.
-
-Use the following passcode:
-
-```text
-112305
-```
-
-Investigate the files available on the PC and proceed to the Research Lab.
-
----
-
-## 4. Research Lab
-
-Enter the Research Lab using:
-
-```text
-100110
-```
-
-Open the **Research Lab Terminal**.
-
-First type:
+Open the URL Vite prints (default port is set in `vite.config.ts`).
 
 ```bash
-cheatsheet
+npm run build    # production build → dist/
+npm run preview  # serve dist locally (includes /api event routes)
 ```
-
-Then execute the following commands:
-
-### Compile the executable
-
-```bash
-gcc buggy.code.c
-```
-
-### Run the executable
-
-```bash
-./buggy.code
-```
-
-This reveals the **motive**.
-
-### View the source code
-
-```bash
-nano buggy.code.c
-```
-
-### View the encoded file
-
-```bash
-cat encoded.base64.txt
-```
-
-### Decode the Base64 file
-
-```bash
-cat encoded.base64.txt | base64 --decode
-```
-
-The decoded output gives:
-
-```text
-7
-```
-
-Keep this number. It is required later.
 
 ---
 
-## 5. Archive Room
+## Useful routes
 
-Enter the Archive Room using:
+| Path | Purpose |
+|------|---------|
+| `/` | Intro → investigation map |
+| `/game?room=verma\|research\|archive\|server` | Enter a room |
+| `/leaderboard` | Final event results (read-only) |
+| `/admin` | Event ops console (password-protected; writes disabled while frozen) |
 
-```text
-452011
-```
-
-Solve the **Decode the Investigation Sequence** puzzle.
-
-The clues and their correct rooms are:
-
-* **Books scattered. Desk forced open.** → `Dr. Verma's Office`
-* **Chemicals. Logs erased.** → `Research Lab`
-* **Files missing. Secrets exposed.** → `Personal Archive Room`
-* **Data stolen. Trail vanished.** → `Server Room`
-
-The correct sequence is:
-
-1. `Dr. Verma's Office`
-2. `Research Lab`
-3. `Personal Archive Room`
-4. `Server Room`
-
-For the clue:
-
-> **Files missing. Secrets exposed.**
-
-enter:
+Deep-link testing (tab-only unlock, does not mark rooms complete permanently):
 
 ```text
-Personal Archive Room
+/game?room=server&skip=1
 ```
-
-Complete the puzzle and proceed to the Server Room.
 
 ---
 
-## 6. Server Room
-
-Enter the Server Room using:
+## Project layout
 
 ```text
-731104
+src/
+  components/rooms/   # Room 1–4 puzzles & 3D
+  components/intro/   # Title, logo, map
+  contexts/           # Mission timer / game state
+  lib/                # Progress, run session, event DB client
+  pages/              # Routes (Index, Game, Leaderboard, Admin)
+server/
+  eventApiPlugin.ts   # /api/event-db + admin/start verify
+public/
+  evidence/           # Letter, reports, images
+  video/              # CCTV footage
+  model/              # GLB assets
+data/
+  event-db.json       # Leaderboard snapshot (do not wipe casually)
 ```
-
-Open the **Server Rack Boot Sequence Reorder** puzzle.
-
-Click:
-
-> **SYSTEM CALIBRATE**
-
-Make the following connections:
-
-```text
-1 → 3
-3 → 1
-2 → 2
-4 → 4
-```
-
-After completing the puzzle, click **Back to Map**.
 
 ---
 
-## 7. Return to the Map
+## Event mode notes
 
-On the map, click:
-
-> **X**
-
-Enter the number obtained from the Research Lab:
-
-```text
-7
-```
-
-This reveals the next required clue.
+- **`LEADERBOARD_FROZEN`** (client + server) blocks new leaderboard writes while still serving the final roster.
+- Free-play progress stays on the device; Reset only clears that browser’s run.
+- During a live event, unfreeze carefully and use `/admin` for live status, time bonuses, and player deletes.
 
 ---
 
-## 8. Final Code
+## Credits
 
-The game requires you to investigate/open a maximum of **8 files/puzzle steps** in total to collect the clues needed for the final combination.
-
-Once all required clues have been obtained, enter the final 4-digit code:
-
-```text
-8745
-```
-
-This completes the investigation.
-
-# END OF CODE OF SILENCE
+Built for **CSI KJSIT** — Code of Silence murder-mystery event.
